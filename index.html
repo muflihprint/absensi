@@ -2097,7 +2097,7 @@ async function checkLoginState(isAfterLogout = false) {
         let slipsHTML = '';
         slips.forEach((slip, index) => {
             const lemburRow = slip.lembur > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Lembur</span><span class="font-medium text-blue-600">+ ${formatRupiah(slip.lembur)}</span></div>` : '';
-            const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Bonus Kehadiran / Omset</span><span class="font-medium text-emerald-600">+ ${formatRupiah(slip.bonus)}</span></div>` : '';
+            const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Bonus Kehadiran/Omset</span><span class="font-medium text-emerald-600">+ ${formatRupiah(slip.bonus)}</span></div>` : '';
             const potonganRow = slip.potongan > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Potongan</span><span class="font-medium text-red-500">- ${formatRupiah(slip.potongan)}</span></div>` : '';
 
             slipsHTML += `
