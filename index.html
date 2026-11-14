@@ -779,13 +779,13 @@ async function loadDailyTasks() {
     // Tarik data tugas mulai dari awal bulan ini untuk mencakup bulanan dan mingguan
     const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
     
-    // 1. Tarik log tugas
-    const { data: rawTasks, error: logErr } = await supabaseClient.from('daily_task_logs')
-        .select('*')
-        .eq('pic_id', currentUser.id)
-        .or(`task_date.gte.${formatDateObj(startOfMonth)},is_completed.eq.false`)
-        .order('task_date', { ascending: true })
-        .order('id');
+   // Di dalam fungsi loadDailyTasks di index2.html, pastikan select mencakup evaluation:
+const { data: rawTasks, error: logErr } = await supabaseClient.from('daily_task_logs')
+    .select('id, pic_id, task_id, task_name, task_date, is_completed, completed_at, evaluation')
+    .eq('pic_id', currentUser.id)
+    .or(`task_date.gte.${formatDateObj(startOfMonth)},is_completed.eq.false`)
+    .order('task_date', { ascending: true })
+    .order('id');
         
     // 2. Tarik master tugas untuk mengecek tipe jadwal (harian/mingguan/bulanan)
     const { data: masterTasks, error: masterErr } = await supabaseClient.from('employee_tasks')
@@ -848,36 +848,73 @@ async function loadDailyTasks() {
         if (grouped[key].length > 0) {
             taskHTML += `<h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider mt-5 mb-3 border-b border-slate-100 pb-1">${groupTitles[key]}</h4>`;
             
-            grouped[key].forEach(task => {
-                const isChecked = task.is_completed ? 'checked' : '';
-                const textStyle = task.is_completed ? 'line-through text-slate-400' : 'text-slate-700 font-medium';
-                const bgStyle = task.is_completed ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-white border-emerald-200 shadow-sm';
-                
-                let dateLabel = "";
-                if (task.is_completed && task.completed_at) {
-                    const cDate = new Date(task.completed_at);
-                    dateLabel = `<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-check mr-1"></i>Selesai: ${cDate.getDate()} ${cDate.toLocaleString('id-ID', {month:'short'})}</span>`;
-                } else {
-                    const tDate = parseDateLocalSafe(task.task_date);
-                    const tglString = `${tDate.getDate()} ${tDate.toLocaleString('id-ID', {month:'short'})}`;
-                    if (task.task_date < todayStr) {
-                        dateLabel = `<span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded block mt-1 w-max font-bold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Tunggakan: ${tglString}</span>`;
-                    } else if (key !== 'harian') { 
-                        // HILANGKAN TAMPILAN TARGET KHUSUS UNTUK TUGAS HARIAN
-                        dateLabel = `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-bullseye mr-1"></i>Target: ${tglString}</span>`;
-                    }
-                }
-                
-                taskHTML += `
-                    <div class="flex items-start gap-3 p-3 rounded-xl border ${bgStyle} transition-all mb-2">
-                        <input type="checkbox" id="task-${task.id}" ${isChecked} onchange="toggleTaskCompletion(${task.id}, this.checked)" class="mt-1 w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
-                        <label for="task-${task.id}" class="text-sm ${textStyle} cursor-pointer select-none flex-1 leading-tight">
-                            ${task.task_name}
-                            ${dateLabel}
-                        </label>
-                    </div>
-                `;
-            });
+           // Di dalam loop perenderan tugas di loadDailyTasks (index2.html):
+grouped[group].forEach(task => {
+    const isChecked = task.is_completed ? 'checked' : '';
+    const textStyle = task.is_completed ? 'line-through text-slate-400' : 'text-slate-700 font-medium';
+    const bgStyle = task.is_completed ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-white border-emerald-200 shadow-sm';
+    
+    let dateLabel = "";
+    if (task.is_completed && task.completed_at) {
+        const cDate = new Date(task.completed_at);
+        dateLabel = `<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-check mr-1"></i>Selesai: ${cDate.getDate()} ${cDate.toLocaleString('id-ID', {month:'short'})}</span>`;
+    } else {
+        const tDate = parseDateLocalSafe(task.task_date);
+        const tglString = `${tDate.getDate()} ${tDate.toLocaleString('id-ID', {month:'short'})}`;
+        if (task.task_date < todayStr) {
+            dateLabel = `<span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded block mt-1 w-max font-bold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Tunggakan: ${tglString}</span>`;
+        } else if (key !== 'harian') { 
+            dateLabel = `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-bullseye mr-1"></i>Target: ${tglString}</span>`;
+        }
+    }
+
+    // --- TAMBAHAN BADGE PENILAIAN ---
+    let evaluationBadge = "";
+    if (task.is_completed && task.evaluation) {
+        let evalClass = "bg-slate-100 text-slate-700 border-slate-200";
+        let evalIcon = "fa-star";
+        let evalLabel = task.evaluation.toUpperCase();
+
+        if (task.evaluation === 'perlu diperbaiki') {
+            evalClass = "bg-rose-100 text-rose-700 border-rose-200 font-bold";
+            evalIcon = "fa-triangle-exclamation";
+        } else if (task.evaluation === 'baik') {
+            evalClass = "bg-blue-100 text-blue-700 border-blue-200 font-bold";
+            evalIcon = "fa-thumbs-up";
+        } else if (task.evaluation === 'sangat baik') {
+            evalClass = "bg-emerald-100 text-emerald-700 border-emerald-200 font-extrabold";
+            evalIcon = "fa-award";
+        }
+
+        evaluationBadge = `
+            <div class="mt-1.5">
+                <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border ${evalClass}">
+                    <i class="fa-solid ${evalIcon}"></i> Penilaian: ${evalLabel}
+                </span>
+            </div>
+        `;
+    } else if (task.is_completed && !task.evaluation) {
+        evaluationBadge = `
+            <div class="mt-1.5">
+                <span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200">
+                    <i class="fa-solid fa-clock"></i> Menunggu Penilaian Admin
+                </span>
+            </div>
+        `;
+    }
+    // --- AKHIR TAMBAHAN BADGE PENILAIAN ---
+    
+    taskHTML += `
+        <div class="flex items-start gap-3 p-3 rounded-xl border ${bgStyle} transition-all mb-2">
+            <input type="checkbox" id="task-${task.id}" ${isChecked} onchange="toggleTaskCompletion(${task.id}, this.checked)" class="mt-1 w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
+            <label for="task-${task.id}" class="text-sm ${textStyle} cursor-pointer select-none flex-1 leading-tight">
+                ${task.task_name}
+                ${dateLabel}
+                ${evaluationBadge}
+            </label>
+        </div>
+    `;
+});
         }
     }
     UI.el('tasks-container').innerHTML = taskHTML;
