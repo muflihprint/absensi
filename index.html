@@ -763,7 +763,45 @@ function getDatesForTask(task, baseDate) {
     }
     return targetDates;
 }
+
 // ==========================================
+// HELPER LENCANA PENILAIAN TUGAS
+// ==========================================
+function renderEvaluationBadge(evaluation) {
+    if (!evaluation || String(evaluation).trim() === '') return '';
+
+    const normalized = String(evaluation).trim().toLowerCase().replace(/_/g, ' ');
+
+    const badgeConfigs = {
+        'sangat baik': {
+            label: 'Sangat Baik',
+            icon: 'fa-solid fa-award',
+            classes: 'bg-emerald-100 text-emerald-700 border-emerald-300'
+        },
+        'baik': {
+            label: 'Baik',
+            icon: 'fa-solid fa-thumbs-up',
+            classes: 'bg-blue-100 text-blue-700 border-blue-300'
+        },
+        'perlu diperbaiki': {
+            label: 'Perlu Diperbaiki',
+            icon: 'fa-solid fa-triangle-exclamation',
+            classes: 'bg-amber-100 text-amber-800 border-amber-300'
+        }
+    };
+
+    const config = badgeConfigs[normalized];
+    if (!config) {
+        return `<span class="inline-flex items-center gap-1 text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-full">
+                    <i class="fa-solid fa-tag"></i> ${evaluation}
+                </span>`;
+    }
+
+    return `<span class="inline-flex items-center gap-1 text-[10px] font-bold ${config.classes} border px-2 py-0.5 rounded-full shadow-2xs">
+                <i class="${config.icon}"></i> ${config.label}
+            </span>`;
+}
+
 // ==========================================
 // FUNGSI TUGAS HARIAN (TAMPILAN UI)
 // ==========================================
@@ -779,7 +817,7 @@ async function loadDailyTasks() {
     // Tarik data tugas mulai dari awal bulan ini untuk mencakup bulanan dan mingguan
     const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
     
-    // 1. Tarik log tugas
+    // 1. Tarik log tugas (kolom evaluation otomatis ikut tertarik melalui select('*'))
     const { data: rawTasks, error: logErr } = await supabaseClient.from('daily_task_logs')
         .select('*')
         .eq('pic_id', currentUser.id)
@@ -851,29 +889,36 @@ async function loadDailyTasks() {
             grouped[key].forEach(task => {
                 const isChecked = task.is_completed ? 'checked' : '';
                 const textStyle = task.is_completed ? 'line-through text-slate-400' : 'text-slate-700 font-medium';
-                const bgStyle = task.is_completed ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-white border-emerald-200 shadow-sm';
+                const hasEval = task.evaluation && String(task.evaluation).trim() !== '';
+                const bgStyle = task.is_completed
+                    ? (hasEval ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200 opacity-75')
+                    : 'bg-white border-emerald-200 shadow-sm';
                 
                 let dateLabel = "";
                 if (task.is_completed && task.completed_at) {
                     const cDate = new Date(task.completed_at);
-                    dateLabel = `<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-check mr-1"></i>Selesai: ${cDate.getDate()} ${cDate.toLocaleString('id-ID', {month:'short'})}</span>`;
+                    dateLabel = `<span class="inline-flex items-center text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded"><i class="fa-solid fa-check mr-1"></i>Selesai: ${cDate.getDate()} ${cDate.toLocaleString('id-ID', {month:'short'})}</span>`;
                 } else {
                     const tDate = parseDateLocalSafe(task.task_date);
                     const tglString = `${tDate.getDate()} ${tDate.toLocaleString('id-ID', {month:'short'})}`;
                     if (task.task_date < todayStr) {
-                        dateLabel = `<span class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded block mt-1 w-max font-bold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Tunggakan: ${tglString}</span>`;
+                        dateLabel = `<span class="inline-flex items-center text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold"><i class="fa-solid fa-circle-exclamation mr-1"></i>Tunggakan: ${tglString}</span>`;
                     } else if (key !== 'harian') { 
-                        // HILANGKAN TAMPILAN TARGET KHUSUS UNTUK TUGAS HARIAN
-                        dateLabel = `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded block mt-1 w-max"><i class="fa-solid fa-bullseye mr-1"></i>Target: ${tglString}</span>`;
+                        dateLabel = `<span class="inline-flex items-center text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded"><i class="fa-solid fa-bullseye mr-1"></i>Target: ${tglString}</span>`;
                     }
                 }
+
+                const evalBadge = renderEvaluationBadge(task.evaluation);
+                const badgesRow = (dateLabel || evalBadge)
+                    ? `<div class="flex flex-wrap items-center gap-1.5 mt-1.5">${dateLabel}${evalBadge}</div>`
+                    : '';
                 
                 taskHTML += `
                     <div class="flex items-start gap-3 p-3 rounded-xl border ${bgStyle} transition-all mb-2">
                         <input type="checkbox" id="task-${task.id}" ${isChecked} onchange="toggleTaskCompletion(${task.id}, this.checked)" class="mt-1 w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer">
-                        <label for="task-${task.id}" class="text-sm ${textStyle} cursor-pointer select-none flex-1 leading-tight">
-                            ${task.task_name}
-                            ${dateLabel}
+                        <label for="task-${task.id}" class="text-sm cursor-pointer select-none flex-1 leading-tight">
+                            <span class="${textStyle}">${task.task_name}</span>
+                            ${badgesRow}
                         </label>
                     </div>
                 `;
@@ -1081,42 +1126,50 @@ function initRealtimeTasks(user) {
     if (realtimeTaskSubscription) supabaseClient.removeChannel(realtimeTaskSubscription);
     
     realtimeTaskSubscription = supabaseClient
-        .channel('public:employee_tasks')
+        .channel(`tasks-realtime-${user.id}`)
         .on('postgres_changes', { 
             event: '*', 
             schema: 'public', 
             table: 'employee_tasks',
             filter: `pic_id=eq.${user.id}`
         }, async (payload) => {
-            console.log(`Perubahan data tertangkap via realtime (${payload.eventType}):`, payload);
-            
-            // Cek apakah karyawan sedang membuka tab tugas
             const taskContent = UI.el('tab-content-tasks');
             const isTaskTabActive = taskContent && !taskContent.classList.contains('hidden');
             
-            // ==========================================================
-            // KUNCI PERUBAHAN: Bedakan penanganan notifikasi WA
-            // ==========================================================
             if (payload.eventType === 'INSERT') {
-                // Panggil fungsi dengan skipWa = false (Kirim notifikasi WA)
                 await generateAndSendDailyTasks(user, false); 
-                
                 if (isTaskTabActive) loadDailyTasks();
                 else showToast("Tugas Baru", "Sistem admin menambahkan tugas baru.", "info");
                 
             } else if (payload.eventType === 'UPDATE') {
-                // Update log database saja secara diam-diam (skipWa = true)
                 await generateAndSendDailyTasks(user, true); 
-                
                 if (isTaskTabActive) loadDailyTasks();
                 else showToast("Tugas Diperbarui", "Ada perubahan rincian pada tugas Anda.", "info");
                 
             } else if (payload.eventType === 'DELETE') {
-                // Update log database saja secara diam-diam (skipWa = true)
-                await generateAndSendDailyTasks(user, true); 
+                // Hapus log yang belum selesai berdasarkan ID master tugas yang dihapus
+                if (payload.old && payload.old.id) {
+                    await supabaseClient
+                        .from('daily_task_logs')
+                        .delete()
+                        .eq('task_id', payload.old.id)
+                        .eq('is_completed', false);
+                }
                 
                 if (isTaskTabActive) loadDailyTasks();
                 else showToast("Tugas Dihapus", "Sebuah tugas telah dihapus oleh admin.", "warning");
+            }
+        })
+        // Listener tambahan jika ada penghapusan/perubahan langsung di tabel daily_task_logs
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'daily_task_logs',
+            filter: `pic_id=eq.${user.id}`
+        }, () => {
+            const taskContent = UI.el('tab-content-tasks');
+            if (taskContent && !taskContent.classList.contains('hidden')) {
+                loadDailyTasks();
             }
         })
         .subscribe((status) => {
