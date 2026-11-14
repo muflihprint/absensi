@@ -83,7 +83,7 @@
                 </div>
             </div>
             <div class="flex gap-2 mt-6">
-                <button id="btn-close-login" class="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold hover:bg-slate-200">Batal</button>
+               <button id="btn-close-login" class="hidden">Batal</button>
                 <button id="btn-submit-login" class="flex-1 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 flex items-center justify-center">Login</button>
             </div>
             
@@ -100,7 +100,7 @@
             </div>
             <h4 class="font-bold text-slate-800 mb-3 text-center">Solusi Gagal Login</h4>
             <div class="text-[11px] text-slate-600 mb-4 leading-relaxed text-left bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                Jika Anda tidak dapat login, Anda dapat mereset password melalui kode OTP WhatsApp atau absen menggunakan mode manual.
+                Jika Anda tidak dapat login, Anda dapat mereset password melalui kode OTP WhatsApp.
             </div>
             
             <button type="button" onclick="openForgotPassword()" class="w-full py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm mb-2 flex items-center justify-center gap-2">
@@ -439,7 +439,7 @@
                     </div>
                 </div>
                 
-                <div id="manual-input-section">
+                <div id="manual-input-section" class="hidden">
                     <h2 class="text-lg font-bold text-emerald-700 mb-4 uppercase tracking-wide">Portal Absensi VIP Plus</h2>
                     <div class="relative">
                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -626,12 +626,14 @@ let tempAppWaNumber = null;
     }
     // --- END OF HELPERS ---
 
-    const SUPABASE_URL = 'https://tigszfvmbpvznotykryx.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpZ3N6ZnZtYnB2em5vdHlrcnl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3MzQwMjcsImV4cCI6MjA5OTMxMDAyN30.O0-y9FI_sikkPVig2XNDJ_zlTnfJZv-hRirPurs8yQc';
+   // Ganti bagian ini di index (4).html menjadi:
+const SUPABASE_URL = 'https://tigszfvmbpvznotykryx.supabase.co'; //
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpZ3N6ZnZtYnB2em5vdHlrcnl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3MzQwMjcsImV4cCI6MjA5OTMxMDAyN30.O0-y9FI_sikkPVig2XNDJ_zlTnfJZv-hRirPurs8yQc'; //
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
-    const TELEGRAM_BOT_TOKEN = "8863289019:AAGy7A9x9AV3HD7Kh2Xbzv-O3JZSlNERtZo";
-    const TELEGRAM_CHAT_ID = "-1004473111299";
+    // Ganti bagian ini di index (4).html menjadi:
+const TELEGRAM_BOT_TOKEN = "8863289019:AAGy7A9x9AV3HD7Kh2Xbzv-O3JZSlNERtZo"; //
+const TELEGRAM_CHAT_ID = "-1004473111299"; //
 
     const AppState = {
         user: null, attendance: [], holidays: new Set(),
@@ -882,20 +884,58 @@ async function loadDailyTasks() {
 }
 
 window.toggleTaskCompletion = async function(taskId, isCompleted) {
-    // Gunakan zona waktu Makassar (WITA) karena Supabase sudah diset ke timestamp without time zone
-    const waktuLokal = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Makassar' });
+    try {
+        // Gunakan zona waktu Makassar (WITA) karena Supabase sudah diset ke timestamp without time zone
+        const waktuLokal = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Makassar' });
 
-    await supabaseClient.from('daily_task_logs').update({ 
-        is_completed: isCompleted, 
-        completed_at: isCompleted ? waktuLokal : null 
-    }).eq('id', taskId);
-    
-    loadDailyTasks(); // Refresh list agar badge/teks terupdate
+        // 1. Update status tugas di log, dan secara bersamaan ambil 'task_id' (ID tabel master)
+        const { data: logData, error: logErr } = await supabaseClient
+            .from('daily_task_logs')
+            .update({ 
+                is_completed: isCompleted, 
+                completed_at: isCompleted ? waktuLokal : null 
+            })
+            .eq('id', taskId)
+            .select('task_id') // Tambahan: Tarik ID master tugas untuk dievaluasi
+            .single();
+            
+        if (logErr) throw logErr;
+
+        // 2. KUNCI PERUBAHAN: Jika tugas di-uncheck (belum selesai)
+        if (isCompleted === false && logData && logData.task_id) {
+            const masterTaskId = logData.task_id;
+
+            // Cek rincian tugas master di tabel employee_tasks
+            const { data: masterTask, error: masterErr } = await supabaseClient
+                .from('employee_tasks')
+                .select('task_type, is_active')
+                .eq('id', masterTaskId)
+                .single();
+
+            if (masterErr) throw masterErr;
+
+            // Jika tugas bertipe 'sekali' dan saat ini statusnya nonaktif, maka aktifkan kembali!
+            if (masterTask && masterTask.task_type === 'sekali' && masterTask.is_active === false) {
+                const { error: updateMasterErr } = await supabaseClient
+                    .from('employee_tasks')
+                    .update({ is_active: true })
+                    .eq('id', masterTaskId);
+                    
+                if (updateMasterErr) throw updateMasterErr;
+                console.log(`Tugas 'sekali' (ID Master: ${masterTaskId}) diaktifkan kembali.`);
+            }
+        }
+        
+        // 3. Refresh list agar badge/teks terupdate
+        loadDailyTasks(); 
+
+    } catch (error) {
+        console.error("Gagal memperbarui status tugas:", error);
+        // Jika Anda memiliki fungsi toast/alert, Anda bisa tambahkan di sini
+        // showToast("Error", "Gagal memperbarui status tugas.", "error");
+    }
 };
 
-// ==========================================
-// GENERATOR TUGAS & NOTIFIKASI WHATSAPP
-// ==========================================
 async function generateAndSendDailyTasks(user, skipWa = false) {
     try {
         const todayDate = new Date();
@@ -906,50 +946,64 @@ async function generateAndSendDailyTasks(user, skipWa = false) {
             .select('*').eq('pic_id', user.id).eq('is_active', true);
             
         if (masterErr) throw masterErr;
-        if (!masterTasks || masterTasks.length === 0) return;
-
-        // 2. Tarik log bulan ini untuk mencegah duplikasi pembuatan data periode yang sama
-        const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
-        const endOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0);
-
-        const { data: existingLogs } = await supabaseClient.from('daily_task_logs')
-            .select('task_id, task_date')
-            .eq('pic_id', user.id)
-            .gte('task_date', formatDateObj(startOfMonth))
-            .lte('task_date', formatDateObj(endOfMonth));
-
-        const existingSet = new Set((existingLogs || []).map(l => `${l.task_id}_${l.task_date}`));
+        
+        // Lanjutkan bahkan jika tidak ada master (untuk keperluan cek pending task / WA).
+        // Hentikan pembuatan log baru hanya jika master kosong.
 
         let logsToInsert = [];
         let onceTasksToDeactivate = [];
 
-        masterTasks.forEach(task => {
-            const targetDates = getDatesForTask(task, todayDate);
-            targetDates.forEach(dateStr => {
-                if (!existingSet.has(`${task.id}_${dateStr}`)) {
-                    logsToInsert.push({
-                        pic_id: user.id,
-                        task_id: task.id,
-                        task_name: task.task_name,
-                        task_date: dateStr,
-                        is_completed: false
-                    });
-                    if (task.task_type === 'sekali') onceTasksToDeactivate.push(task.id);
-                }
-            });
-        });
+        if (masterTasks && masterTasks.length > 0) {
+            // 2. Tarik log bulan ini untuk mencegah duplikasi pembuatan data periode yang sama
+            const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+            const endOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0);
 
-        // Simpan tugas baru ke log & nonaktifkan tipe 'sekali'
-        if (logsToInsert.length > 0) {
-            const { error: insertErr } = await supabaseClient.from('daily_task_logs').insert(logsToInsert);
-            if (insertErr) throw insertErr;
-            if (onceTasksToDeactivate.length > 0) await supabaseClient.from('employee_tasks').update({ is_active: false }).in('id', onceTasksToDeactivate);
-        } else {
-            return; // HENTIKAN JIKA TIDAK ADA TUGAS BARU DIGENERATE HARI INI AGAR TIDAK SPAM WA
+            const { data: existingLogs } = await supabaseClient.from('daily_task_logs')
+                .select('task_id, task_date')
+                .eq('pic_id', user.id)
+                .gte('task_date', formatDateObj(startOfMonth))
+                .lte('task_date', formatDateObj(endOfMonth));
+
+            const existingSet = new Set((existingLogs || []).map(l => `${l.task_id}_${l.task_date}`));
+
+            masterTasks.forEach(task => {
+                const targetDates = getDatesForTask(task, todayDate);
+                targetDates.forEach(dateStr => {
+                    if (!existingSet.has(`${task.id}_${dateStr}`)) {
+                        logsToInsert.push({
+                            pic_id: user.id,
+                            task_id: task.id,
+                            task_name: task.task_name,
+                            task_date: dateStr,
+                            is_completed: false
+                        });
+                        if (task.task_type === 'sekali') onceTasksToDeactivate.push(task.id);
+                    }
+                });
+            });
+
+            // Simpan tugas baru ke log & nonaktifkan tipe 'sekali'
+            if (logsToInsert.length > 0) {
+                const { error: insertErr } = await supabaseClient.from('daily_task_logs').insert(logsToInsert);
+                if (insertErr) throw insertErr;
+                
+                if (onceTasksToDeactivate.length > 0) {
+                     await supabaseClient.from('employee_tasks').update({ is_active: false }).in('id', onceTasksToDeactivate);
+                }
+            } 
         }
 
-        // --- CEK PARAMETER: Jika dipanggil dari sistem realtime, lewati pengiriman WA ---
+        // --- CEK PARAMETER: Hentikan eksekusi di sini jika dipanggil dari sistem realtime ---
+        // Alasan: Realtime tidak perlu mengirim ulang WA, cukup update log database saja.
         if (skipWa) return; 
+        
+        // Jika kode sampai sini, artinya pemanggilan bukan dari realtime,
+        // tapi jika tidak ada tugas baru yang di-generate (logsToInsert kosong),
+        // hentikan proses AGAR TIDAK SPAM WA (seperti komentar pada kode Anda sebelumnya).
+        // CATATAN: Jika Anda ingin WA *selalu* terkirim meski tidak ada tugas baru, hapus 3 baris di bawah ini.
+        if (logsToInsert.length === 0) {
+            return; 
+        }
 
         // 3. AMBIL DATA UNTUK WA (Format Pengelompokan Standar)
         const { data: rawPending } = await supabaseClient.from('daily_task_logs')
@@ -958,6 +1012,8 @@ async function generateAndSendDailyTasks(user, skipWa = false) {
             .eq('is_completed', false)
             .order('task_date', { ascending: true });
 
+        // Ambil info master lagi secara independen (karena masterTasks di atas mungkin difilter is_active=true saja, 
+        // padahal task yang is_active=false mungkin masih pending di daily_task_logs)
         const { data: allMasterTasks } = await supabaseClient.from('employee_tasks')
             .select('id, schedule_type, task_type')
             .eq('pic_id', user.id);
@@ -1016,36 +1072,88 @@ function formatWaDate(dateStr) {
 }
 
 let realtimeTaskSubscription = null;
+let activeRealtimeUser = null; 
 
 function initRealtimeTasks(user) {
-    // Jika sudah ada listener aktif, matikan dulu agar tidak dobel
+    if (!user) return;
+    activeRealtimeUser = user;
+
     if (realtimeTaskSubscription) supabaseClient.removeChannel(realtimeTaskSubscription);
     
-    // Subscribe ke penambahan data baru di tabel employee_tasks
     realtimeTaskSubscription = supabaseClient
         .channel('public:employee_tasks')
         .on('postgres_changes', { 
-            event: 'INSERT', 
+            event: '*', 
             schema: 'public', 
             table: 'employee_tasks',
-            filter: `pic_id=eq.${user.id}` // Hanya dengarkan tugas untuk karyawan yang sedang login
+            filter: `pic_id=eq.${user.id}`
         }, async (payload) => {
-            console.log('Tugas baru ditambahkan via database!', payload);
+            console.log(`Perubahan data tertangkap via realtime (${payload.eventType}):`, payload);
             
-            // Proses generate log seketika itu juga (Melewati pengiriman WA otomatis dari aplikasi)
-            await generateAndSendDailyTasks(user, true); 
+            // Cek apakah karyawan sedang membuka tab tugas
+            const taskContent = UI.el('tab-content-tasks');
+            const isTaskTabActive = taskContent && !taskContent.classList.contains('hidden');
             
-            // Perbarui UI jika karyawan sedang berada di tab tugas
+            // ==========================================================
+            // KUNCI PERUBAHAN: Bedakan penanganan notifikasi WA
+            // ==========================================================
+            if (payload.eventType === 'INSERT') {
+                // Panggil fungsi dengan skipWa = false (Kirim notifikasi WA)
+                await generateAndSendDailyTasks(user, false); 
+                
+                if (isTaskTabActive) loadDailyTasks();
+                else showToast("Tugas Baru", "Sistem admin menambahkan tugas baru.", "info");
+                
+            } else if (payload.eventType === 'UPDATE') {
+                // Update log database saja secara diam-diam (skipWa = true)
+                await generateAndSendDailyTasks(user, true); 
+                
+                if (isTaskTabActive) loadDailyTasks();
+                else showToast("Tugas Diperbarui", "Ada perubahan rincian pada tugas Anda.", "info");
+                
+            } else if (payload.eventType === 'DELETE') {
+                // Update log database saja secara diam-diam (skipWa = true)
+                await generateAndSendDailyTasks(user, true); 
+                
+                if (isTaskTabActive) loadDailyTasks();
+                else showToast("Tugas Dihapus", "Sebuah tugas telah dihapus oleh admin.", "warning");
+            }
+        })
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') console.log('Realtime Tasks Terhubung!');
+        });
+}
+
+// 1. Tangani saat halaman "bangun" dari Back-Forward Cache
+window.addEventListener('pageshow', (event) => {
+    if (event.persisted && activeRealtimeUser) {
+        console.log("Halaman dipulihkan dari cache. Menyambung ulang WebSocket...");
+        initRealtimeTasks(activeRealtimeUser);
+        
+        // Refresh UI untuk berjaga-jaga jika ada tugas baru masuk saat koneksi tadi mati
+        const taskContent = UI.el('tab-content-tasks');
+        if (taskContent && !taskContent.classList.contains('hidden')) {
+            loadDailyTasks();
+        }
+    }
+});
+
+// 2. Tangani saat layar HP mati lalu nyala, atau berpindah tab browser
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && activeRealtimeUser) {
+        // Cek apakah koneksi websocket terputus/closed
+        if (realtimeTaskSubscription && realtimeTaskSubscription.state !== 'joined') {
+            console.log("Tab kembali aktif, menyambung ulang WebSocket...");
+            initRealtimeTasks(activeRealtimeUser);
+            
+            // Refresh UI 
             const taskContent = UI.el('tab-content-tasks');
             if (taskContent && !taskContent.classList.contains('hidden')) {
                 loadDailyTasks();
-            } else {
-                // Notifikasi visual di dalam aplikasi jika karyawan sedang di menu absensi / kalender
-                showToast("Tugas Baru Diterima", "Sistem admin baru saja menambahkan tugas baru.", "info");
             }
-        })
-        .subscribe();
-}
+        }
+    }
+});
 
 function removeRealtimeTasks() {
     if (realtimeTaskSubscription) {
@@ -1647,7 +1755,7 @@ await generateAndSendDailyTasks(res.user);
                     <i class="fa-solid fa-bell text-yellow-300"></i> Info Penting
                 </h4>
                 <p class="text-xs text-blue-100 mb-4 leading-relaxed">
-                    Tombol <b>Logout</b> ini digunakan jika Anda ingin keluar dari akun atau beralih ke opsi <b>memasukkan kode manual</b>.
+                 Tombol <b>Logout</b> ini digunakan jika Anda ingin keluar dari akun.
                 </p>
                 <button id="btn-close-tooltip" class="w-full bg-white text-blue-700 hover:bg-slate-100 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm active:scale-95 cursor-pointer">
                     Oke, Saya Mengerti
@@ -1777,25 +1885,22 @@ async function checkLoginState(isAfterLogout = false) {
                 setTimeout(() => introduceLogoutFeature(), 300);
             }
             introduceNewTabs();
-        } else {
-            // (Bagian else tetap dibiarkan sama persis seperti kode sebelumnya)
+    } else {
             UI.toggleFlex('logged-in-section', false);
             UI.show('btn-login-modal'); UI.hide('btn-logout');
             UI.hide('btn-auto-check-in'); UI.hide('btn-check-out');
             UI.hide('profile-admin-container');
             UI.toggleFlex('app-tabs-container', false);
-            switchAppTab('absensi');
+            
+            // GANTI switchAppTab('absensi'); menjadi:
+            turnOffCamera(); 
 
+            // Selalu sembunyikan mode manual dan paksa tampilkan modal login
+            UI.hide('manual-input-section'); 
             const loginModal = UI.el('login-modal');
-            if (isAppMode && !isAfterLogout) {
-                UI.hide('manual-input-section'); 
-                UI.show('login-modal');
-                setTimeout(() => loginModal.classList.remove('opacity-0'), 10);
-                UI.hide('btn-close-login');
-            } else {
-                UI.show('manual-input-section');
-                UI.show('btn-close-login');
-            }
+            UI.show('login-modal');
+            setTimeout(() => loginModal.classList.remove('opacity-0'), 10);
+            UI.hide('btn-close-login');
         }
     }
 
@@ -1841,7 +1946,7 @@ async function checkLoginState(isAfterLogout = false) {
         localStorage.removeItem('attendance_user');
         localStorage.removeItem('attendance_slips');
         sessionStorage.removeItem('app_unlocked');
-        showToast("Logout", "Anda telah keluar ke mode manual.", "info");
+        showToast("Logout", "Anda telah berhasil keluar dari akun.", "info");
         
         removeRealtimeTasks();
         
@@ -1945,7 +2050,7 @@ async function checkLoginState(isAfterLogout = false) {
         tempOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
         tempOtpTimestamp = Date.now();
 
-        const waText = `*KODE OTP APLIKASI ABSENSI VIP PLUS*\n\nHalo ${tempOtpUser.name},\nKode OTP Anda untuk reset password adalah: *${tempOtpCode}*\n\n_Catatan: Kode ini hanya berlaku selama 5 menit._`;
+        const waText = `*KODE OTP APLIKASI ABSENSI BLIMI PLUS*\n\nHalo ${tempOtpUser.name},\nKode OTP Anda untuk reset password adalah: *${tempOtpCode}*\n\n_Catatan: Kode ini hanya berlaku selama 5 menit._`;
         const fonnteToken = 'AiHV4a6BXReg6pGaariC';
 
         await fetch('https://api.fonnte.com/send', {
@@ -1954,7 +2059,7 @@ async function checkLoginState(isAfterLogout = false) {
             body: new URLSearchParams({ target: waNumber, message: waText })
         });
 
-        UI.el('otp-info-text').innerHTML = `Kode OTP dikirim menggunakan sistem ke nomor Anda "${maskPhoneNumber(waNumber)}".<br><span class="block mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[10px] text-emerald-700">Silakan cek pesan WA dari nomor pengirim:<br><b class="text-xs">6285823253354</b></span>`;
+        UI.el('otp-info-text').innerHTML = `Kode OTP dikirim menggunakan sistem ke nomor Anda "${maskPhoneNumber(waNumber)}".<br><span class="block mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[10px] text-emerald-700">Silakan cek pesan WA dari nomor pengirim:<br><b class="text-xs">6285756816217</b></span>`;
         
         UI.hide('fp-state-1'); UI.hide('fp-state-wa'); UI.show('fp-state-2');
         if (otpCountdownInterval) clearInterval(otpCountdownInterval);
@@ -2097,7 +2202,7 @@ async function checkLoginState(isAfterLogout = false) {
         let slipsHTML = '';
         slips.forEach((slip, index) => {
             const lemburRow = slip.lembur > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Lembur</span><span class="font-medium text-blue-600">+ ${formatRupiah(slip.lembur)}</span></div>` : '';
-            const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Bonus Kehadiran/Omset</span><span class="font-medium text-emerald-600">+ ${formatRupiah(slip.bonus)}</span></div>` : '';
+const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Bonus Kehadiran/Omset</span><span class="font-medium text-emerald-600">+ ${formatRupiah(slip.bonus)}</span></div>` : '';
             const potonganRow = slip.potongan > 0 ? `<div class="flex justify-between items-center"><span class="text-slate-600">Potongan</span><span class="font-medium text-red-500">- ${formatRupiah(slip.potongan)}</span></div>` : '';
 
             slipsHTML += `
@@ -2516,7 +2621,7 @@ async function checkLoginState(isAfterLogout = false) {
         
         appOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
         appOtpTimestamp = Date.now();
-        const waText = `*KODE AKSES APLIKASI ABSENSI VIP PLUS*\n\nHalo ${currentUser.name},\nKode OTP Anda adalah: *${appOtpCode}*\n\n_Catatan: Kode ini hanya berlaku 5 menit._`;
+        const waText = `*KODE AKSES APLIKASI ABSENSI BLIMI PLUS*\n\nHalo ${currentUser.name},\nKode OTP Anda adalah: *${appOtpCode}*\n\n_Catatan: Kode ini hanya berlaku 5 menit._`;
         
         try {
             await fetch('https://api.fonnte.com/send', {
@@ -2524,7 +2629,7 @@ async function checkLoginState(isAfterLogout = false) {
                 body: new URLSearchParams({ target: targetNumber, message: waText })
             });
 
-            UI.el('app-otp-info').innerHTML = `Kode OTP dikirim ke WA <b>${maskPhoneNumber(targetNumber)}</b>.<br><span class="block mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[10px] text-emerald-700">Pengirim: <b class="text-xs">6285823253354</b></span>`;
+            UI.el('app-otp-info').innerHTML = `Kode OTP dikirim ke WA <b>${maskPhoneNumber(targetNumber)}</b>.<br><span class="block mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[10px] text-emerald-700">Pengirim: <b class="text-xs">6285756816217</b></span>`;
             UI.el('input-app-otp').value = "";
             
             if (appOtpInterval) clearInterval(appOtpInterval);
@@ -2574,7 +2679,7 @@ async function checkLoginState(isAfterLogout = false) {
         UI.el('btn-logout').click(); 
     };
  
-    // --- FITUR TOUR/ONBOARDING TAB BARU ---
+// --- FITUR TOUR/ONBOARDING TAB BARU ---
     window.showTabTooltip = function(step) {
         let tooltip = UI.el('tabs-tooltip');
         // Buat elemen tooltip jika belum ada
@@ -2585,9 +2690,15 @@ async function checkLoginState(isAfterLogout = false) {
             document.body.appendChild(tooltip);
         }
 
+        const btnTasks = UI.el('btn-tab-tasks');
         const btnCalendar = UI.el('btn-tab-calendar');
         const btnSlips = UI.el('btn-tab-slips');
-        let targetBtn = step === 1 ? btnCalendar : btnSlips;
+        
+        // Tentukan tombol mana yang disorot berdasarkan step
+        let targetBtn;
+        if (step === 1) targetBtn = btnTasks;
+        else if (step === 2) targetBtn = btnCalendar;
+        else if (step === 3) targetBtn = btnSlips;
         
         if (!targetBtn) return;
 
@@ -2597,13 +2708,13 @@ async function checkLoginState(isAfterLogout = false) {
                 <div class="relative">
                     <div class="absolute -top-6 left-1/2 -translate-x-1/2 border-8 border-transparent border-b-blue-600"></div>
                     <h4 class="font-bold text-sm mb-1 flex items-center gap-2">
-                        <i class="fa-solid fa-calendar-days text-yellow-300"></i> Fitur Baru!
+                        <i class="fa-solid fa-list-check text-yellow-300"></i> Fitur Baru!
                     </h4>
                     <p class="text-xs text-blue-100 mb-4 leading-relaxed">
-                        <b>Kalender Absensi:</b> Cek riwayat kehadiran dan selisih jam kerja Anda dengan lebih mudah.
+                        <b>Daftar Tugas:</b> Pantau dan selesaikan tugas harian Anda langsung dari sini.
                     </p>
                     <button id="btn-next-tab-tooltip" class="w-full bg-white text-blue-700 hover:bg-slate-100 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm cursor-pointer">
-                        Lanjut
+                        Buka Tugas & Lanjut
                     </button>
                 </div>
             `;
@@ -2612,13 +2723,28 @@ async function checkLoginState(isAfterLogout = false) {
                 <div class="relative">
                     <div class="absolute -top-6 left-1/2 -translate-x-1/2 border-8 border-transparent border-b-blue-600"></div>
                     <h4 class="font-bold text-sm mb-1 flex items-center gap-2">
-                        <i class="fa-solid fa-receipt text-yellow-300"></i> Fitur Baru!
+                        <i class="fa-solid fa-calendar-days text-yellow-300"></i> Info Absensi
                     </h4>
                     <p class="text-xs text-blue-100 mb-4 leading-relaxed">
-                        <b>Slip Gaji:</b> Pantau riwayat slip gaji bulanan Anda secara langsung dari sini.
+                        <b>Kalender Absensi:</b> Cek riwayat kehadiran dan selisih jam kerja Anda dengan lebih mudah.
+                    </p>
+                    <button id="btn-next-tab-tooltip" class="w-full bg-white text-blue-700 hover:bg-slate-100 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm cursor-pointer">
+                        Buka Kalender & Lanjut
+                    </button>
+                </div>
+            `;
+        } else if (step === 3) {
+            tooltip.innerHTML = `
+                <div class="relative">
+                    <div class="absolute -top-6 left-1/2 -translate-x-1/2 border-8 border-transparent border-b-blue-600"></div>
+                    <h4 class="font-bold text-sm mb-1 flex items-center gap-2">
+                        <i class="fa-solid fa-receipt text-yellow-300"></i> Transparansi
+                    </h4>
+                    <p class="text-xs text-blue-100 mb-4 leading-relaxed">
+                        <b>Slip Gaji:</b> Pantau riwayat slip gaji bulanan Anda secara langsung.
                     </p>
                     <button id="btn-finish-tab-tooltip" class="w-full bg-white text-blue-700 hover:bg-slate-100 text-xs font-bold py-2 rounded-lg transition-colors shadow-sm cursor-pointer">
-                        Lanjut & Buka Tab
+                        Buka Slip & Selesai
                     </button>
                 </div>
             `;
@@ -2656,25 +2782,30 @@ async function checkLoginState(isAfterLogout = false) {
         });
 
         // Tangani Aksi Tombol di dalam Tooltip
-        if (step === 1) {
+        if (step === 1 || step === 2) {
             document.getElementById('btn-next-tab-tooltip').onclick = () => {
                 dot.remove();
                 tooltip.classList.remove('opacity-100', 'translate-y-0');
                 tooltip.classList.add('opacity-0', 'translate-y-4');
                 
-                // Jeda sebentar untuk animasi tertutup, lalu pindah ke tab kalender & buka step 2
+                // Pindah tab secara otomatis berdasarkan step saat ini, lalu tampilkan tooltip selanjutnya
                 setTimeout(() => {
-                    switchAppTab('calendar');
-                    showTabTooltip(2);
+                    if (step === 1) {
+                        switchAppTab('tasks');
+                        showTabTooltip(2);
+                    } else {
+                        switchAppTab('calendar');
+                        showTabTooltip(3);
+                    }
                 }, 300);
             };
-        } else if (step === 2) {
+        } else if (step === 3) {
             document.getElementById('btn-finish-tab-tooltip').onclick = () => {
                 dot.remove();
-                switchAppTab('slips'); // Pindah ke tab slip gaji sesuai instruksi Anda
+                switchAppTab('slips'); // Pindah ke tab slip gaji di akhir
                 
-                // Simpan data di local storage agar tour tidak muncul lagi di masa depan
-                localStorage.setItem('new_tabs_intro_shown', 'true');
+                // Simpan data di local storage menggunakan key baru (v2) agar user lama tetap melihat fitur tugas
+                localStorage.setItem('new_tabs_intro_shown_v2', 'true');
                 
                 // Hilangkan tooltip
                 tooltip.classList.remove('opacity-100', 'translate-y-0');
@@ -2685,13 +2816,13 @@ async function checkLoginState(isAfterLogout = false) {
     };
 
     window.introduceNewTabs = function() {
-        // Jika sudah pernah melihat tour ini, hentikan
-        if (localStorage.getItem('new_tabs_intro_shown')) return;
+        // Cek key v2 agar tooltip fitur tugas tetap muncul bagi user yang sudah melihat versi lama
+        if (localStorage.getItem('new_tabs_intro_shown_v2')) return;
         
         const tabsContainer = UI.el('app-tabs-container');
         if (!tabsContainer || tabsContainer.classList.contains('hidden')) return;
 
-        // Tunggu 1,5 detik setelah login agar UI stabil, baru munculkan tooltip Kalender (Step 1)
+        // Tunggu 1,5 detik setelah login agar UI stabil, baru munculkan tooltip Tugas (Step 1)
         setTimeout(() => {
             showTabTooltip(1);
         }, 1500);
