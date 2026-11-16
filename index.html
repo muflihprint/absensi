@@ -306,9 +306,10 @@
             <button id="btn-install" class="hidden text-xs sm:text-sm bg-emerald-100 text-emerald-700 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg font-bold hover:bg-emerald-200 transition-all flex items-center gap-1.5 shadow-sm">
                 <i class="fa-solid fa-download"></i> <span class="hidden sm:inline">Instal</span>
             </button>
-            <button id="btn-login-modal" class="text-xs sm:text-sm bg-blue-100 text-blue-700 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg font-bold hover:bg-blue-200 transition-all shadow-sm">
-                <i class="fa-solid fa-right-to-bracket"></i> <span class="hidden min-[380px]:inline ml-1">Login</span>
-            </button>
+            <!-- Tambahkan class 'hidden' pada #btn-login-modal -->
+<button id="btn-login-modal" class="hidden text-xs sm:text-sm bg-blue-100 text-blue-700 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg font-bold hover:bg-blue-200 transition-all shadow-sm">
+    <i class="fa-solid fa-right-to-bracket"></i> <span class="hidden min-[380px]:inline ml-1">Login</span>
+</button>
             <button id="btn-logout" class="hidden text-xs sm:text-sm border border-rose-200 text-rose-600 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg font-bold hover:bg-rose-50 transition-all">
                 <i class="fa-solid fa-right-from-bracket"></i>
             </button>
@@ -1874,55 +1875,69 @@ async function checkLoginState(isAfterLogout = false) {
             window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: minimal-ui)').matches || 
             window.navigator.standalone === true || document.referrer.includes('android-app://') || window.location.search.includes('mode=pwa');
 
-        if (currentUser) {
-            // TAMBAHAN: Deteksi ketat jika cache browser versi lama tidak punya data WA
-            const isWaMissingInCache = !currentUser.wa_number || currentUser.wa_number.trim() === "";
+       if (currentUser) {
+    const isWaMissingInCache = !currentUser.wa_number || currentUser.wa_number.trim() === "";
 
-            // Jika aplikasi belum di-unlock di sesi ini ATAU cache lama tidak punya nomor WA, PAKSA cek ke database
-            if (!sessionStorage.getItem('app_unlocked') || isWaMissingInCache) {
-                try {
-                    const { data: dbUser, error } = await supabaseClient.from('employees').select('wa_number').eq('code', currentUser.code).single();
-                    if (error) throw error;
-                    
-                    if (dbUser && dbUser.wa_number) {
-                        // Jika di database ada, update cache lokal dan izinkan masuk
-                        sessionStorage.setItem('app_unlocked', 'true');
-                        currentUser.wa_number = dbUser.wa_number;
-                        localStorage.setItem('attendance_user', JSON.stringify(currentUser));
-                    } else {
-                        // JIKA DI DATABASE KOSONG: Cabut paksa akses dan kurung di modal OTP
-                        sessionStorage.removeItem('app_unlocked');
-                        
-                        // Sembunyikan elemen background agar tidak bocor terlihat
-                        UI.hide('manual-input-section'); 
-                        UI.hide('profile-admin-container');
-                        UI.hide('app-tabs-container');
-                        
-                        // Munculkan verifikasi
-                        if (typeof startWaOtpVerification === "function") startWaOtpVerification();
-                        return; // HENTIKAN PROSES DI SINI, JANGAN RENDER DASHBOARD
-                    }
-                } catch (error) {
-                    sessionStorage.removeItem('app_unlocked');
-                    if (typeof startWaOtpVerification === "function") startWaOtpVerification();
-                    return;
-                }
+    // Jika cache lokal sudah punya data user & nomor WA, langsung tampilkan UI login agar tidak berkedip
+    if (!isWaMissingInCache) {
+        UI.hide('manual-input-section');
+        UI.toggleFlex('logged-in-section', true);
+        UI.hide('btn-login-modal');
+        UI.show('btn-logout');
+        UI.show('profile-admin-container');
+        UI.toggleFlex('app-tabs-container', true);
+        UI.el('welcome-message').textContent = `Halo, ${currentUser.name}!`;
+    }
+
+    // Validasi ke database tetap berjalan
+    if (!sessionStorage.getItem('app_unlocked') || isWaMissingInCache) {
+        try {
+            const { data: dbUser, error } = await supabaseClient
+                .from('employees')
+                .select('wa_number')
+                .eq('code', currentUser.code)
+                .single();
+            if (error) throw error;
+
+            if (dbUser && dbUser.wa_number) {
+                sessionStorage.setItem('app_unlocked', 'true');
+                currentUser.wa_number = dbUser.wa_number;
+                localStorage.setItem('attendance_user', JSON.stringify(currentUser));
+            } else {
+                // Jika di database WA kosong, sembunyikan kembali UI dan kunci dengan modal OTP
+                sessionStorage.removeItem('app_unlocked');
+                UI.hide('manual-input-section');
+                UI.toggleFlex('logged-in-section', false);
+                UI.hide('profile-admin-container');
+                UI.toggleFlex('app-tabs-container', false);
+                if (typeof startWaOtpVerification === "function") startWaOtpVerification();
+                return;
             }
+        } catch (error) {
+            sessionStorage.removeItem('app_unlocked');
+            UI.toggleFlex('logged-in-section', false);
+            UI.hide('profile-admin-container');
+            UI.toggleFlex('app-tabs-container', false);
+            if (typeof startWaOtpVerification === "function") startWaOtpVerification();
+            return;
+        }
+    }
 
-            // --- Jika lolos validasi WA, LANJUT BUKA APLIKASI ---
-            UI.hide('manual-input-section');
-            UI.toggleFlex('logged-in-section', true);
-            UI.hide('btn-login-modal'); UI.show('btn-logout');
-            
-            const loginModal = UI.el('login-modal');
-            loginModal.classList.add('opacity-0');
-            setTimeout(() => UI.hide('login-modal'), 300);
-            
-            UI.show('profile-admin-container');
-            UI.toggleFlex('app-tabs-container', true);
-            
-            const storedSlips = JSON.parse(localStorage.getItem('attendance_slips') || '[]');
-            initDashboard(currentUser, storedSlips);
+    // --- Lanjutkan inisialisasi dashboard & cek status absen ---
+    UI.hide('manual-input-section');
+    UI.toggleFlex('logged-in-section', true);
+    UI.hide('btn-login-modal');
+    UI.show('btn-logout');
+    
+    const loginModal = UI.el('login-modal');
+    loginModal.classList.add('opacity-0');
+    UI.hide('login-modal');
+
+    UI.show('profile-admin-container');
+    UI.toggleFlex('app-tabs-container', true);
+    
+    const storedSlips = JSON.parse(localStorage.getItem('attendance_slips') || '[]');
+    initDashboard(currentUser, storedSlips);
 
             initRealtimeTasks(currentUser);
 
@@ -2915,9 +2930,14 @@ const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center
     };
     // --- AKHIR FITUR TOUR/ONBOARDING TAB BARU ---
 
-    document.addEventListener('DOMContentLoaded', () => {
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-        initClock(); initCamera(); initLocation(); refreshDashboardData(); checkLoginState();
+    checkLoginState();
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    initClock(); 
+    initCamera(); 
+    initLocation(); 
+    refreshDashboardData();
         
         const inputKode = UI.el('employee-code-input');
         if (inputKode) inputKode.addEventListener('focus', () => setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 300));
