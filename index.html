@@ -342,26 +342,28 @@
             </div>
         </div>
 
-        <!-- Profil -->
-        <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex items-center justify-between relative">
-            <div class="flex items-center gap-4">
-                <div class="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xl font-bold shrink-0">
-                    <span id="profile-initial">V</span>
-                </div>
-                <div>
-                    <h2 id="profile-nama" class="text-lg font-bold text-slate-800 leading-tight">Nama Karyawan</h2>
-                    <p class="text-sm text-slate-500 mt-0.5 flex items-center gap-1.5">
-                        <i data-lucide="badge-check" class="w-4 h-4 text-emerald-500"></i>
-                        <span id="profile-jabatan">-</span>
-                        <span class="text-slate-300">•</span>
-                        <span id="profile-noid" class="font-mono text-xs">ID000</span>
-                    </p>
-                </div>
-            </div>
-            <button id="btn-settings-profile" onclick="openEditModal()" class="p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 rounded-full transition-colors" title="Ubah Profil">
-                <i data-lucide="settings" class="w-5 h-5"></i>
-            </button>
+<!-- Profil -->
+<div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex items-center justify-between relative">
+    <div class="flex items-center gap-4">
+        <div id="profile-avatar-box" class="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xl font-bold shrink-0 animate-pulse">
+            <span id="profile-initial"><i class="fa-solid fa-spinner fa-spin text-base"></i></span>
         </div>
+        <div>
+            <h2 id="profile-nama" class="text-lg font-bold text-slate-800 leading-tight">
+                <span class="inline-block h-5 w-36 bg-slate-200 rounded-md animate-pulse"></span>
+            </h2>
+            <p class="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
+                <i data-lucide="badge-check" class="w-4 h-4 text-emerald-500 shrink-0"></i>
+                <span id="profile-jabatan"><span class="inline-block h-3.5 w-20 bg-slate-200 rounded animate-pulse"></span></span>
+                <span class="text-slate-300">•</span>
+                <span id="profile-noid" class="font-mono text-xs"><span class="inline-block h-3.5 w-16 bg-slate-200 rounded animate-pulse"></span></span>
+            </p>
+        </div>
+    </div>
+    <button id="btn-settings-profile" onclick="openEditModal()" class="p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 rounded-full transition-colors" title="Ubah Profil">
+        <i data-lucide="settings" class="w-5 h-5"></i>
+    </button>
+</div>
     </div>
 
     <!-- Tabs Navigasi -->
@@ -1879,15 +1881,16 @@ async function checkLoginState(isAfterLogout = false) {
     const isWaMissingInCache = !currentUser.wa_number || currentUser.wa_number.trim() === "";
 
     // Jika cache lokal sudah punya data user & nomor WA, langsung tampilkan UI login agar tidak berkedip
-    if (!isWaMissingInCache) {
-        UI.hide('manual-input-section');
-        UI.toggleFlex('logged-in-section', true);
-        UI.hide('btn-login-modal');
-        UI.show('btn-logout');
-        UI.show('profile-admin-container');
-        UI.toggleFlex('app-tabs-container', true);
-        UI.el('welcome-message').textContent = `Halo, ${currentUser.name}!`;
-    }
+   if (!isWaMissingInCache) {
+    UI.hide('manual-input-section');
+    UI.toggleFlex('logged-in-section', true);
+    UI.hide('btn-login-modal');
+    UI.show('btn-logout');
+    setProfileLoading(true); // Tampilkan skeleton selama proses verifikasi & load data
+    UI.show('profile-admin-container');
+    UI.toggleFlex('app-tabs-container', true);
+    UI.el('welcome-message').textContent = `Halo, ${currentUser.name}!`;
+}
 
     // Validasi ke database tetap berjalan
     if (!sessionStorage.getItem('app_unlocked') || isWaMissingInCache) {
@@ -2278,13 +2281,32 @@ async function checkLoginState(isAfterLogout = false) {
         } else UI.hide('admin-panel');
     }
 
-    function renderDashboard(user, slips) {
-        const namaKaryawan = user.name || user.username || 'Karyawan';
-        UI.el('profile-nama').innerText = namaKaryawan;
-        UI.el('profile-jabatan').innerText = user.position || "-"; 
-        UI.el('profile-noid').innerText = "ID: " + user.code;
-        UI.el('profile-initial').innerText = namaKaryawan.charAt(0).toUpperCase();
-        UI.el('total-slip-badge').innerText = slips.length + " Slip";
+    function setProfileLoading(isLoading) {
+    const avatarBox = UI.el('profile-avatar-box');
+    const initialEl = UI.el('profile-initial');
+    const namaEl = UI.el('profile-nama');
+    const jabatanEl = UI.el('profile-jabatan');
+    const noidEl = UI.el('profile-noid');
+
+    if (isLoading) {
+        if (avatarBox) avatarBox.classList.add('animate-pulse');
+        if (initialEl) initialEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-base"></i>`;
+        if (namaEl) namaEl.innerHTML = `<span class="inline-block h-5 w-36 bg-slate-200 rounded-md animate-pulse"></span>`;
+        if (jabatanEl) jabatanEl.innerHTML = `<span class="inline-block h-3.5 w-20 bg-slate-200 rounded animate-pulse"></span>`;
+        if (noidEl) noidEl.innerHTML = `<span class="inline-block h-3.5 w-16 bg-slate-200 rounded animate-pulse"></span>`;
+    } else {
+        if (avatarBox) avatarBox.classList.remove('animate-pulse');
+    }
+}
+
+function renderDashboard(user, slips) {
+    setProfileLoading(false);
+    const namaKaryawan = user.name || user.username || 'Karyawan';
+    UI.el('profile-nama').innerText = namaKaryawan;
+    UI.el('profile-jabatan').innerText = user.position || "-"; 
+    UI.el('profile-noid').innerText = "ID: " + user.code;
+    UI.el('profile-initial').innerText = namaKaryawan.charAt(0).toUpperCase();
+    UI.el('total-slip-badge').innerText = slips.length + " Slip";
 
         const btnSettings = UI.el('btn-settings-profile');
         const sessionUser = JSON.parse(localStorage.getItem("attendance_user") || 'null');
@@ -2530,10 +2552,22 @@ const bonusRow = slip.bonus > 0 ? `<div class="flex justify-between items-center
     }
 
     window.onAdminSelectEmployee = async function(selectedCode) {
+    setProfileLoading(true);
+    const selectEl = UI.el('adminEmployeeSelect');
+    if (selectEl) selectEl.disabled = true;
+
+    try {
         const selectedUserRaw = AppState.admin.employees[selectedCode].raw;
-        const { data: slips } = await supabaseClient.from('gaji').select('*').eq('noid', selectedCode).order('id', { ascending: false });
+        const { data: slips } = await supabaseClient
+            .from('gaji')
+            .select('*')
+            .eq('noid', selectedCode)
+            .order('id', { ascending: false });
         renderDashboard(selectedUserRaw, slips || []);
-    };
+    } finally {
+        if (selectEl) selectEl.disabled = false;
+    }
+};
 
     window.triggerManualSend = function() {
         if (Object.keys(AppState.admin.employees).length === 0) { alert("Data belum selesai dimuat."); return; }
