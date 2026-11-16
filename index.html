@@ -1008,6 +1008,16 @@ async function generateAndSendDailyTasks(user, skipWa = false) {
     try {
         const todayDate = new Date();
         const todayStr = getLocalDateString();
+
+        // Cek apakah karyawan sudah absen masuk hari ini
+        const { data: attRecord } = await supabaseClient
+            .from('attendance')
+            .select('id')
+            .eq('employeeCode', user.code)
+            .eq('date', todayStr)
+            .maybeSingle();
+
+        if (!attRecord) return;
         
         // 1. Tarik master tugas
         const { data: masterTasks, error: masterErr } = await supabaseClient.from('employee_tasks')
